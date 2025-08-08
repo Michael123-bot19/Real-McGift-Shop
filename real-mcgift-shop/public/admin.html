@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Admin - Real McGift Shop</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;background:#f4f6f8;padding:20px}
+    .wrap{max-width:900px;margin:0 auto;background:#fff;padding:18px;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,0.06)}
+    h1{margin-top:0}
+    .row{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+    input[type="file"]{padding:6px}
+    input[type="password"], input[type="text"]{flex:1;padding:8px;border:1px solid #ddd;border-radius:6px}
+    button{background:#ff4081;color:#fff;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;font-weight:600}
+    .preview{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+    .thumb{width:120px;height:120px;border-radius:6px;overflow:hidden;border:1px solid #eee;display:flex;align-items:center;justify-content:center}
+    .thumb img{width:100%;height:100%;object-fit:cover}
+    .msg{margin-top:12px;color:#333}
+    .small{font-size:0.9rem;color:#666}
+    .items-list{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+    .item-row{display:flex;gap:8px;align-items:center;background:#fafafa;padding:8px;border-radius:6px}
+    .item-row img{width:80px;height:80px;object-fit:cover;border-radius:6px}
+    .item-meta{flex:1}
+    .item-actions{display:flex;gap:6px}
+    .input{padding:8px;border:1px solid #ddd;border-radius:6px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Admin Upload / Manage</h1>
+    <p class="small">Password-protected admin panel. Upload images, add price & description, edit or delete items.</p>
+
+    <div class="row">
+      <input id="password" type="password" placeholder="Admin password" />
+      <button id="show-pass">Show</button>
+    </div>
+
+    <h3>Upload new item(s)</h3>
+    <div class="row">
+      <input id="files" type="file" accept="image/*" multiple />
+      <input id="title" class="input" type="text" placeholder="Title (optional)" />
+    </div>
+    <div class="row">
+      <input id="price" class="input" type="text" placeholder="Price (e.g. 2500 NGN)" />
+      <input id="desc" class="input" type="text" placeholder="Short description" />
+      <button id="uploadBtn">Upload</button>
+    </div>
+
+    <div id="preview" class="preview"></div>
+    <div id="msg" class="msg"></div>
+
+    <hr/>
+    <h3>Existing items</h3>
+    <div id="items" class="items-list"></div>
+  </div>
+
+  <script>
+    const filesEl = document.getElementById('files');
+    const preview = document.getElementById('preview');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const msg = document.getElementById('msg');
+    const passEl = document.getElementById('password');
+    const showBtn = document.getElementById('show-pass');
+    const itemsEl = document.getElementById('items');
+    const titleEl = document.getElementById('title');
+    const priceEl = document.getElementById('price');
+    const descEl = document.getElementById('desc');
+
+    showBtn.addEventListener('click', ()=>{ if(passEl.type==='password'){ passEl.type='text'; showBtn.textContent='Hide'; } else { passEl.type='password'; showBtn.textContent='Show'; } });
+
+    filesEl.addEventListener('change', ()=>{
+      preview.innerHTML='';
+      const files = Array.from(filesEl.files||[]);
+      files.forEach(f=>{
+        const reader = new FileReader();
+        const div = document.createElement('div'); div.className='thumb';
+        reader.onload = e => { const img = document.createElement('img'); img.src=e.target.result; div.appendChild(img); };
+        reader.readAsDataURL(f); preview.appendChild(div);
+      });
+    });
+
+    uploadBtn.addEventListener('click', async ()=>{
+      msg.textContent='';
+      const pass = passEl.value.trim();
+      if(!pass){ msg.textContent='Enter admin password.'; return; }
+      const files = filesEl.files;
+      if(!files || files.length===0){ msg.textContent='Select at least one image.'; return; }
+      const fd = new FormData();
+      fd.append('password', pass);
+      for(let i=0;i<files.length;i++) fd.append('images', files[i], files[i].name);
+      fd.append('title', titleEl.value||'');
+      fd.append('price', priceEl.value||'');
+      fd.append('desc', descEl.value||'');
+      uploadBtn.disabled=true; uploadBtn.textContent='Uploading...';
+      try{
+        const res = await fetch('/admin/upload', { method:'POST', body: fd });
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.message||'Upload failed');
+        msg.style.color='green'; msg.textContent = `Uploaded ${data.uploaded.length} item(s).`;
+        filesEl.value=''; preview.innerHTML=''; titleEl.value=''; priceEl.value=''; descEl.value='';
+        loadItems();
+      }catch(e){ msg.style.color='crimson'; msg.textContent='Error: '+(e.message||e); }
+      finally{ uploadBtn.disabled=false; uploadBtn.textContent='Upload'; }
+    });
+
+    async function loadItems(){
+      itemsEl.innerHTML='Loading...';
+      try{
+        const r = await fetch('/api/products');
+        const items = await r.json();
+        itemsEl.innerHTML='';
+        items.forEach(it => {
+          const row = document.createElement('div'); row.className='item-row';
+          const img = document.createElement('img'); img.src='/products/'+encodeURIComponent(it.filename);
+          const meta = document.createElement('div'); meta.className='item-meta';
+          const t = document.createElement('div'); t.textContent = it.title || '';
+          const p = document.createElement('div'); p.textContent = it.price || '';
+          const d = document.createElement('div'); d.textContent = it.desc || '';
+          meta.appendChild(t); meta.appendChild(p); meta.appendChild(d);
+
+          const actions = document.createElement('div'); actions.className='item-actions';
+          const editBtn = document.createElement('button'); editBtn.textContent='Edit';
+          const delBtn = document.createElement('button'); delBtn.textContent='Delete';
+          editBtn.addEventListener('click', ()=> openEdit(it));
+          delBtn.addEventListener('click', ()=> doDelete(it));
+          actions.appendChild(editBtn); actions.appendChild(delBtn);
+
+          row.appendChild(img); row.appendChild(meta); row.appendChild(actions);
+          itemsEl.appendChild(row);
+        });
+        if(items.length===0) itemsEl.innerHTML='<div class="small">No items found.</div>';
+      }catch(e){ itemsEl.innerHTML='Error loading items.'; console.error(e); }
+    }
+
+    function openEdit(it){
+      const newTitle = prompt('Title', it.title||'') || it.title;
+      const newPrice = prompt('Price', it.price||'') || it.price;
+      const newDesc = prompt('Description', it.desc||'') || it.desc;
+      const pass = passEl.value.trim();
+      if(!pass){ alert('Enter admin password'); return; }
+      // Ask if replacing image
+      const replace = confirm('Replace image? (OK to choose, Cancel to keep current)');
+      if(replace){
+        const fileInput = document.createElement('input'); fileInput.type='file'; fileInput.accept='image/*';
+        fileInput.onchange = async ()=>{
+          const f = fileInput.files[0];
+          const fd = new FormData();
+          fd.append('password', pass);
+          fd.append('id', it.id);
+          fd.append('title', newTitle);
+          fd.append('price', newPrice);
+          fd.append('desc', newDesc);
+          fd.append('image', f, f.name);
+          try{
+            const res = await fetch('/admin/edit', { method:'POST', body: fd });
+            const data = await res.json();
+            if(!res.ok) throw new Error(data.message||'Edit failed');
+            alert('Item updated');
+            loadItems();
+          }catch(e){ alert('Error: '+(e.message||e)); }
+        };
+        fileInput.click();
+      } else {
+        // send edit without image
+        fetch('/admin/edit', { method:'POST', body: new URLSearchParams({ password: pass, id: it.id, title: newTitle, price: newPrice, desc: newDesc }) })
+          .then(r=>r.json()).then(data=>{ if(!data.success) alert('Error: '+(data.message||'Edit failed')); else { alert('Updated'); loadItems(); } }).catch(e=>alert('Error'));
+      }
+    }
+
+    function doDelete(it){
+      if(!confirm('Delete this item?')) return;
+      const pass = passEl.value.trim();
+      if(!pass){ alert('Enter admin password'); return; }
+      fetch('/admin/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: pass, id: it.id }) })
+        .then(r=>r.json()).then(data=>{ if(!data.success) alert('Error: '+(data.message||'Delete failed')); else { alert('Deleted'); loadItems(); } }).catch(e=>alert('Error'));
+    }
+
+    // initial load
+    loadItems();
+  </script>
+</body>
+</html>
